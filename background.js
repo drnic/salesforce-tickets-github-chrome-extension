@@ -165,7 +165,8 @@ async function searchGitHubPRs(ticketNumber, token, organization, domain, skipCa
       title: pr.title,
       url: pr.html_url,
       repository: pr.repository_url.split('/').slice(-2).join('/'),
-      state: pr.state
+      state: pr.state,
+      draft: pr.draft
     }));
     
     console.log('Final result:', result);

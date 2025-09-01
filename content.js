@@ -653,8 +653,16 @@ class SalesforceGitHubLinker {
       badge.title = `${pr.title} (${pr.repository})`
       badge.textContent = `#${pr.number}`
 
-      // Use CSS classes for state
-      badge.className = `pr-badge ${pr.state === 'open' ? 'open' : 'closed'}`
+      // Use CSS classes for state - prioritize draft over open/closed
+      let stateClass;
+      if (pr.draft) {
+        stateClass = 'draft';
+      } else if (pr.state === 'open') {
+        stateClass = 'open';
+      } else {
+        stateClass = 'closed';
+      }
+      badge.className = `pr-badge ${stateClass}`
 
       prContainer.appendChild(badge)
     })
@@ -700,6 +708,14 @@ class SalesforceGitHubLinker {
 
       .pr-badge.closed:hover {
         background-color: #5a32a3;
+      }
+
+      .pr-badge.draft {
+        background-color: #6a737d;
+      }
+
+      .pr-badge.draft:hover {
+        background-color: #586069;
       }
 
     `
