@@ -17,8 +17,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 async function searchGitHubPRs(ticketNumber, token, organization) {
   const query = `[${ticketNumber}] in:title type:pr org:${organization}`;
   
-  console.log('Searching GitHub with query:', query);
+  console.log('=== Background Script Debug ===');
+  console.log('Ticket number:', ticketNumber);
+  console.log('Token (first 10 chars):', token ? token.substring(0, 10) + '...' : 'MISSING');
   console.log('Organization:', organization);
+  console.log('Search query:', query);
+  
+  if (!token) {
+    throw new Error('No GitHub token provided');
+  }
+  
+  if (!organization) {
+    throw new Error('No GitHub organization provided');
+  }
   
   try {
     const response = await fetch(`https://api.github.com/search/issues?q=${encodeURIComponent(query)}`, {

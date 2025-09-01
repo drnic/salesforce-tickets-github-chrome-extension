@@ -5,6 +5,8 @@ class SalesforceGitHubLinker {
     this.token = null;
     this.organization = null;
     this.processedTickets = new Set();
+    this.rateLimitQueue = [];
+    this.isProcessingQueue = false;
     this.init();
   }
 
@@ -76,17 +78,125 @@ class SalesforceGitHubLinker {
   }
 
   async processTickets() {
-    if (!this.token || !this.organization) return;
+    if (!this.token || !this.organization) {
+      console.log('Skipping ticket processing - missing token or organization');
+      console.log('Token exists:', !!this.token);
+      console.log('Organization exists:', !!this.organization);
+      return;
+    }
 
     const ticketCards = document.querySelectorAll('.pipelineViewCard');
+    console.log('Found', ticketCards.length, 'ticket cards');
     
-    for (const card of ticketCards) {
+    // Sort tickets by column position (right to left)
+    const sortedCards = this.sortTicketsByColumn(Array.from(ticketCards));
+    console.log('Sorted tickets by column position (RHS first)');
+    console.log('First 5 tickets in processing order:', 
+      sortedCards.slice(0, 5).map(card => this.extractTicketNumber(card)));
+    
+    // Group tickets by column for cleaner logging
+    const ticketsByColumn = new Map();
+    for (const card of sortedCards) {
       const ticketNumber = this.extractTicketNumber(card);
       if (ticketNumber && !this.processedTickets.has(ticketNumber)) {
+        const column = card.closest('.pipelineColumn');
+        const header = column?.querySelector('.pipelineHeader');
+        const columnName = header ? header.textContent.trim() : 'Unknown Column';
+        
+        if (!ticketsByColumn.has(columnName)) {
+          ticketsByColumn.set(columnName, []);
+        }
+        ticketsByColumn.get(columnName).push(ticketNumber);
+        
         this.processedTickets.add(ticketNumber);
-        await this.addGitHubLinks(card, ticketNumber);
+        this.rateLimitQueue.push({ card, ticketNumber });
       }
     }
+    
+    // Show tickets by column in processing order
+    console.log('=== Tickets by Column (in processing order) ===');
+    ticketsByColumn.forEach((tickets, columnName) => {
+      console.log(`📋 ${columnName}: ${tickets.join(', ')}`);
+    });
+    
+    // Start processing the queue if not already running
+    if (!this.isProcessingQueue) {
+      this.processQueue();
+    }
+  }
+  
+  async processQueue() {
+    if (this.isProcessingQueue) return;
+    
+    this.isProcessingQueue = true;
+    console.log('Starting to process queue with', this.rateLimitQueue.length, 'tickets');
+    
+    while (this.rateLimitQueue.length > 0) {
+      const { card, ticketNumber } = this.rateLimitQueue.shift();
+      console.log('Processing ticket from queue:', ticketNumber);
+      
+      try {
+        await this.addGitHubLinks(card, ticketNumber);
+      } catch (error) {
+        console.error('Error processing ticket', ticketNumber, error);
+      }
+      
+      // Wait 1 second between API calls to avoid rate limiting
+      if (this.rateLimitQueue.length > 0) {
+        console.log('Waiting 1 second before next API call...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+    
+    this.isProcessingQueue = false;
+    console.log('Finished processing queue');
+  }
+
+  sortTicketsByColumn(cards) {
+    // Get all pipeline columns and their positions
+    const kanbanView = document.querySelector('#kanbanView');
+    if (!kanbanView) {
+      console.log('Kanban view not found, using default order');
+      return cards;
+    }
+    
+    const columns = Array.from(kanbanView.querySelectorAll('.pipelineColumn'));
+    console.log('Found', columns.length, 'pipeline columns');
+    
+    // Create a map of column positions (rightmost = 0, leftmost = highest index)
+    const columnOrder = new Map();
+    const columnInfo = [];
+    
+    columns.forEach((column, index) => {
+      const header = column.querySelector('.pipelineHeader');
+      const headerText = header ? header.textContent.trim() : `Column ${index}`;
+      const processingOrder = columns.length - 1 - index; // Reverse order (rightmost first)
+      
+      columnInfo.push({ headerText, processingOrder });
+      columnOrder.set(column, processingOrder);
+    });
+    
+    // Show the processing order
+    console.log('=== Column Processing Order ===');
+    columnInfo
+      .sort((a, b) => a.processingOrder - b.processingOrder)
+      .forEach((col, idx) => {
+        console.log(`${idx + 1}. "${col.headerText}" (priority: ${col.processingOrder})`);
+      });
+    
+    // Sort cards by their column position
+    return cards.sort((a, b) => {
+      const columnA = a.closest('.pipelineColumn');
+      const columnB = b.closest('.pipelineColumn');
+      
+      const orderA = columnOrder.get(columnA) ?? 999;
+      const orderB = columnOrder.get(columnB) ?? 999;
+      
+      console.log(`Card ${this.extractTicketNumber(a)}: column order ${orderA}`);
+      console.log(`Card ${this.extractTicketNumber(b)}: column order ${orderB}`);
+      
+      return orderA - orderB; // Lower order = higher priority (rightmost first)
+    });
   }
 
   extractTicketNumber(card) {
@@ -100,6 +210,11 @@ class SalesforceGitHubLinker {
 
   async addGitHubLinks(card, ticketNumber) {
     try {
+      console.log('=== Content Script Debug ===');
+      console.log('Ticket number:', ticketNumber);
+      console.log('Token (first 10 chars):', this.token ? this.token.substring(0, 10) + '...' : 'MISSING');
+      console.log('Organization:', this.organization);
+      
       // Search for PRs using the background script
       const response = await new Promise((resolve, reject) => {
         chrome.runtime.sendMessage({
