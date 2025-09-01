@@ -186,6 +186,8 @@
   <div class="form-group">
     <label for="token">GitHub Personal Access Token:</label>
     <input type="password" id="token" placeholder="ghp_xxxxxxxxxxxx">
+    <button type="button" id="showToken" style="margin-top: 5px; padding: 4px 8px; font-size: 12px;">Show Token</button>
+    <textarea id="tokenDisplay" style="display: none; width: 100%; height: 60px; margin-top: 5px; font-family: monospace; font-size: 11px;" readonly></textarea>
     <div class="help-text">
       Need a token? <a href="https://github.com/settings/personal-access-tokens/new?name=Salesforce+GitHub+Linker&description=Search+PRs+for+Salesforce+tickets&contents=read&pull_requests=read&metadata=read&issues=read&resource_owner=GetStoreConnect" target="_blank">Create new token</a>
       <br><strong>⚠️ Important for fine-grained tokens:</strong>

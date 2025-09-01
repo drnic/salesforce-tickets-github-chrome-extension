@@ -4,6 +4,8 @@ document.addEventListener('DOMContentLoaded', function() {
   const ignoredColumnsInput = document.getElementById('ignoredColumns');
   const saveButton = document.getElementById('save');
   const statusDiv = document.getElementById('status');
+  const showTokenButton = document.getElementById('showToken');
+  const tokenDisplay = document.getElementById('tokenDisplay');
 
   // Load existing settings
   chrome.storage.sync.get(['githubToken', 'githubOrganization', 'ignoredColumns'], function(result) {
@@ -18,6 +20,22 @@ document.addEventListener('DOMContentLoaded', function() {
     } else {
       ignoredColumnsInput.value = 'Parked, Done';
     }
+  });
+
+  // Show/hide token functionality
+  showTokenButton.addEventListener('click', function() {
+    chrome.storage.sync.get(['githubToken'], function(result) {
+      if (result.githubToken) {
+        tokenDisplay.value = result.githubToken;
+        tokenDisplay.style.display = tokenDisplay.style.display === 'none' ? 'block' : 'none';
+        showTokenButton.textContent = tokenDisplay.style.display === 'none' ? 'Show Token' : 'Hide Token';
+        if (tokenDisplay.style.display === 'block') {
+          tokenDisplay.select();
+        }
+      } else {
+        showStatus('No token saved yet', 'error');
+      }
+    });
   });
 
   // Save settings
