@@ -7,14 +7,70 @@ chrome.runtime.onInstalled.addListener(() => {
 // Handle messages from content script for GitHub API calls
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'searchGitHubPRs') {
-    searchGitHubPRs(request.ticketNumber, request.token, request.organization)
+    searchGitHubPRs(request.ticketNumber, request.token, request.organization, request.domain, request.skipCache)
       .then(prs => sendResponse({ success: true, prs }))
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true; // Keep the message channel open for async response
   }
+  
+  if (request.action === 'getCachedPRs') {
+    getCachedPRs(request.ticketNumber, request.organization, request.domain)
+      .then(cachedData => sendResponse({ success: true, cachedData }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
 });
 
-async function searchGitHubPRs(ticketNumber, token, organization) {
+// Cache functions
+function getCacheKey(domain, organization, ticketNumber) {
+  return `prCache_${domain}_${organization}_${ticketNumber}`;
+}
+
+async function getCachedPRs(ticketNumber, organization, domain) {
+  const cacheKey = getCacheKey(domain, organization, ticketNumber);
+  const result = await chrome.storage.local.get([cacheKey]);
+  const cachedData = result[cacheKey];
+  
+  if (!cachedData) {
+    return null;
+  }
+  
+  // Check if cache is expired (1 hour = 3600000 ms)
+  const now = Date.now();
+  const cacheAge = now - cachedData.timestamp;
+  const cacheExpiry = 60 * 60 * 1000; // 1 hour
+  
+  if (cacheAge > cacheExpiry) {
+    // Cache expired, remove it
+    await chrome.storage.local.remove([cacheKey]);
+    return null;
+  }
+  
+  console.log(`📦 Cache hit for ${ticketNumber} (age: ${Math.round(cacheAge / 1000 / 60)}min)`);
+  return cachedData;
+}
+
+async function cachePRResults(ticketNumber, organization, domain, prs) {
+  const cacheKey = getCacheKey(domain, organization, ticketNumber);
+  const cacheData = {
+    prs: prs,
+    timestamp: Date.now(),
+    ticketNumber: ticketNumber
+  };
+  
+  await chrome.storage.local.set({ [cacheKey]: cacheData });
+  console.log(`💾 Cached ${prs.length} PRs for ${ticketNumber}`);
+}
+
+async function searchGitHubPRs(ticketNumber, token, organization, domain, skipCache = false) {
+  // Check cache first unless explicitly skipped
+  if (!skipCache && domain) {
+    const cachedData = await getCachedPRs(ticketNumber, organization, domain);
+    if (cachedData) {
+      return cachedData.prs;
+    }
+  }
+  
   // Simplified search - just ticket number without brackets
   const query = `${ticketNumber} in:title is:pull-request org:${organization}`;
   
@@ -113,6 +169,12 @@ async function searchGitHubPRs(ticketNumber, token, organization) {
     }));
     
     console.log('Final result:', result);
+    
+    // Cache the results if domain is provided
+    if (domain) {
+      await cachePRResults(ticketNumber, organization, domain, result);
+    }
+    
     return result;
   } catch (error) {
     console.error('Error searching GitHub PRs:', error);
