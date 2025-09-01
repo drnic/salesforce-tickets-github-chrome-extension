@@ -133,9 +133,9 @@ class SalesforceGitHubLinker {
     // First, immediately show cached results for all visible tickets
     await this.showCachedResults(ticketCards)
 
-    // Sort tickets by column position (right to left)
-    const sortedCards = this.sortTicketsByColumn(Array.from(ticketCards))
-    console.log('Sorted tickets by column position (RHS first)')
+    // Sort tickets prioritizing those without cached PRs, then by column position
+    const sortedCards = await this.sortTicketsByPriorityAndColumn(Array.from(ticketCards))
+    console.log('Sorted tickets prioritizing uncached tickets, then by column position')
     console.log('First 5 tickets in processing order:',
       sortedCards.slice(0, 5).map(card => this.extractTicketNumber(card)))
 
@@ -287,6 +287,96 @@ class SalesforceGitHubLinker {
 
     this.isProcessingQueue = false
     console.log('Finished processing queue')
+  }
+
+  async sortTicketsByPriorityAndColumn(cards) {
+    // Get all pipeline columns and their positions
+    const kanbanView = document.querySelector('#kanbanView')
+    if (!kanbanView) {
+      console.log('Kanban view not found, using default order')
+      return cards
+    }
+
+    const columns = Array.from(kanbanView.querySelectorAll('.pipelineColumn'))
+    console.log('Found', columns.length, 'pipeline columns')
+
+    // Create a map of column positions (rightmost = 0, leftmost = highest index)
+    const columnOrder = new Map()
+    const columnInfo = []
+
+    columns.forEach((column, index) => {
+      const header = column.querySelector('.pipelineHeader')
+      const headerText = header ? header.textContent.trim() : `Column ${index}`
+      const processingOrder = columns.length - 1 - index // Reverse order (rightmost first)
+
+      columnInfo.push({ headerText, processingOrder })
+      columnOrder.set(column, processingOrder)
+    })
+
+    // Check cache status for each ticket
+    const cardsWithCacheStatus = await Promise.all(cards.map(async (card) => {
+      const ticketNumber = this.extractTicketNumber(card)
+      let needsFreshData = true // Default to needing fresh data
+      
+      if (ticketNumber) {
+        try {
+          const cachedResponse = await new Promise((resolve, reject) => {
+            chrome.runtime.sendMessage({
+              action: 'getCachedPRs',
+              ticketNumber: ticketNumber,
+              organization: this.organization,
+              domain: this.domainKey
+            }, (response) => {
+              if (chrome.runtime.lastError) {
+                reject(new Error(chrome.runtime.lastError.message))
+              } else {
+                resolve(response)
+              }
+            })
+          })
+          
+          // Only consider it as NOT needing fresh data if it has cached data with PRs > 0
+          if (cachedResponse.success && cachedResponse.cachedData && cachedResponse.cachedData.prs && cachedResponse.cachedData.prs.length > 0) {
+            needsFreshData = false
+          }
+        } catch (error) {
+          console.error(`Error checking cache for ${ticketNumber}:`, error)
+        }
+      }
+
+      return { card, ticketNumber, needsFreshData }
+    }))
+
+    // Show the processing order
+    console.log('=== Column Processing Order ===')
+    columnInfo
+      .sort((a, b) => a.processingOrder - b.processingOrder)
+      .forEach((col, idx) => {
+        console.log(`${idx + 1}. "${col.headerText}" (priority: ${col.processingOrder})`)
+      })
+
+    // Count tickets by fresh data needs
+    const needsFreshCount = cardsWithCacheStatus.filter(item => item.needsFreshData).length
+    const hasFreshDataCount = cardsWithCacheStatus.filter(item => !item.needsFreshData).length
+    console.log(`=== Cache Status ===`)
+    console.log(`📦 Tickets with cached PRs (>0): ${hasFreshDataCount}`)
+    console.log(`🔄 Tickets needing fresh data (no cache or 0 PRs): ${needsFreshCount} (will be prioritized)`)
+
+    // Sort cards: tickets needing fresh data first (sorted by column RHS to LHS), then tickets with cached PRs (sorted by column RHS to LHS)
+    return cardsWithCacheStatus.sort((a, b) => {
+      // First priority: fresh data needs (tickets needing fresh data first)
+      if (a.needsFreshData && !b.needsFreshData) return -1
+      if (!a.needsFreshData && b.needsFreshData) return 1
+      
+      // Within same cache status, sort by column position (rightmost first)
+      const columnA = a.card.closest('.pipelineColumn')
+      const columnB = b.card.closest('.pipelineColumn')
+
+      const orderA = columnOrder.get(columnA) ?? 999
+      const orderB = columnOrder.get(columnB) ?? 999
+
+      return orderA - orderB // Lower order = higher priority (rightmost first)
+    }).map(item => item.card)
   }
 
   sortTicketsByColumn(cards) {
