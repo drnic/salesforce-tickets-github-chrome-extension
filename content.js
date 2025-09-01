@@ -10,6 +10,8 @@ class SalesforceGitHubLinker {
     this.rateLimitQueue = []
     this.isProcessingQueue = false
     this.domainKey = this.getDomainKey()
+    this.mutationObserver = null
+    this.hasFoundTickets = false
     this.init()
   }
 
@@ -59,12 +61,17 @@ class SalesforceGitHubLinker {
     // Process existing tickets
     this.processTickets()
 
-    // Set up observer for new tickets loaded dynamically
+    // Always set up observer for card re-rendering when tickets are moved
     this.setupMutationObserver()
   }
 
   setupMutationObserver() {
-    const observer = new MutationObserver((mutations) => {
+    // Clean up existing observer if any
+    if (this.mutationObserver) {
+      this.mutationObserver.disconnect()
+    }
+
+    this.mutationObserver = new MutationObserver((mutations) => {
       let shouldProcess = false
 
       mutations.forEach((mutation) => {
@@ -88,7 +95,16 @@ class SalesforceGitHubLinker {
 
     // Observe the main content area
     const targetNode = document.body
-    observer.observe(targetNode, { childList: true, subtree: true })
+    this.mutationObserver.observe(targetNode, { childList: true, subtree: true })
+    console.log('🔍 MutationObserver started - monitoring for tickets and card re-renders')
+  }
+
+  stopMutationObserver() {
+    if (this.mutationObserver) {
+      this.mutationObserver.disconnect()
+      this.mutationObserver = null
+      console.log('🛑 MutationObserver stopped - tickets found and processed')
+    }
   }
 
   async processTickets() {
@@ -101,6 +117,18 @@ class SalesforceGitHubLinker {
 
     const ticketCards = document.querySelectorAll('.pipelineViewCard')
     console.log('Found', ticketCards.length, 'ticket cards')
+
+    // Track that we've found tickets (for logging purposes)
+    if (ticketCards.length > 0 && !this.hasFoundTickets) {
+      this.hasFoundTickets = true
+      console.log('✅ First-time tickets found - MutationObserver will continue running for card re-renders')
+    }
+
+    // If still no tickets, keep waiting
+    if (ticketCards.length === 0) {
+      console.log('⏳ No tickets found yet, waiting...')
+      return
+    }
 
     // First, immediately show cached results for all visible tickets
     await this.showCachedResults(ticketCards)
@@ -200,6 +228,13 @@ class SalesforceGitHubLinker {
 
   async showCachedPRsForTicket(card, ticketNumber) {
     try {
+      // Check if this ticket already has PR badges
+      const existingPRContainer = card.querySelector('.github-pr-links')
+      if (existingPRContainer) {
+        console.log(`📦 ${ticketNumber} already has PR badges, skipping cached display`)
+        return false
+      }
+
       const cachedResponse = await new Promise((resolve, reject) => {
         chrome.runtime.sendMessage({
           action: 'getCachedPRs',
@@ -217,7 +252,7 @@ class SalesforceGitHubLinker {
 
       if (cachedResponse.success && cachedResponse.cachedData && cachedResponse.cachedData.prs) {
         console.log(`📦 Showing cached ${cachedResponse.cachedData.prs.length} PRs for ${ticketNumber}`)
-        this.insertPRBadges(card, cachedResponse.cachedData.prs, true)
+        this.insertPRBadges(card, cachedResponse.cachedData.prs)
         return true
       }
       return false
@@ -408,28 +443,32 @@ class SalesforceGitHubLinker {
       console.log('Expected query:', expectedQuery)
       console.log('Expected URL:', expectedUrl)
 
-      // Check if we already have cached results displayed
-      const existingPRContainer = card.querySelector('.github-pr-links[data-cached="true"]')
+      // Check if we already have any PR results displayed and get cached data for comparison
+      const existingPRContainer = card.querySelector('.github-pr-links')
       let cachedPrs = null
       if (existingPRContainer) {
-        console.log(`📦 ${ticketNumber} already has cached results displayed`)
+        console.log(`📦 ${ticketNumber} already has PR results displayed`)
         // Get the cached data to compare with fresh results
-        const cachedResponse = await new Promise((resolve, reject) => {
-          chrome.runtime.sendMessage({
-            action: 'getCachedPRs',
-            ticketNumber: ticketNumber,
-            organization: this.organization,
-            domain: this.domainKey
-          }, (response) => {
-            if (chrome.runtime.lastError) {
-              reject(new Error(chrome.runtime.lastError.message))
-            } else {
-              resolve(response)
-            }
+        try {
+          const cachedResponse = await new Promise((resolve, reject) => {
+            chrome.runtime.sendMessage({
+              action: 'getCachedPRs',
+              ticketNumber: ticketNumber,
+              organization: this.organization,
+              domain: this.domainKey
+            }, (response) => {
+              if (chrome.runtime.lastError) {
+                reject(new Error(chrome.runtime.lastError.message))
+              } else {
+                resolve(response)
+              }
+            })
           })
-        })
-        if (cachedResponse.success && cachedResponse.cachedData) {
-          cachedPrs = cachedResponse.cachedData.prs
+          if (cachedResponse.success && cachedResponse.cachedData) {
+            cachedPrs = cachedResponse.cachedData.prs
+          }
+        } catch (error) {
+          console.error(`Error getting cached data for comparison: ${error}`)
         }
       }
 
@@ -456,13 +495,12 @@ class SalesforceGitHubLinker {
       if (response.success && response.prs) {
         console.log(`🔄 Fresh results for ${ticketNumber}:`, response.prs)
 
-        // Update the UI - either replace changed results or refresh existing cached badges
+        // Update the UI if the results changed or we don't have existing results
         if (!cachedPrs || this.prResultsChanged(cachedPrs, response.prs)) {
           console.log(`🔄 Updating badges for ${ticketNumber} (data changed)`)
-          this.insertPRBadges(card, response.prs, false) // false indicates fresh data
-        } else if (existingPRContainer) {
-          console.log(`🔄 Refreshing cached badges for ${ticketNumber} (data unchanged)`)
-          this.refreshCachedBadges(card) // Make cached badges look fresh
+          this.insertPRBadges(card, response.prs)
+        } else {
+          console.log(`✅ Data unchanged for ${ticketNumber} - keeping existing badges`)
         }
 
         if (response.prs.length > 0) {
@@ -494,24 +532,8 @@ class SalesforceGitHubLinker {
     return oldSet.size !== newSet.size || ![...oldSet].every(item => newSet.has(item))
   }
 
-  refreshCachedBadges(card) {
-    const prContainer = card.querySelector('.github-pr-links[data-cached="true"]')
-    if (!prContainer) return
 
-    // Remove the cached classes and attributes to make badges look fresh
-    prContainer.removeAttribute('data-cached')
-    prContainer.classList.remove('cached')
-
-    // Remove cached class from all badges
-    const badges = prContainer.querySelectorAll('.pr-badge.cached')
-    badges.forEach(badge => {
-      badge.classList.remove('cached')
-    })
-
-    console.log(`🔄 Refreshed cached badges to look fresh`)
-  }
-
-  insertPRBadges(card, prs, fromCache = false) {
+  insertPRBadges(card, prs) {
     // Find the container where we want to add the PR badges
     const cardInner = card.querySelector('.pipelineViewCardInnerWrapper')
     if (!cardInner) return
@@ -533,12 +555,6 @@ class SalesforceGitHubLinker {
     prContainer.className = 'slds-truncate runtime_sales_pipelineboardPipelineViewCardItemStencil github-pr-links'
     prContainer.style.cssText = 'margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px;'
 
-    // Add cache indicator if from cache
-    if (fromCache) {
-      prContainer.setAttribute('data-cached', 'true')
-      prContainer.classList.add('cached')
-    }
-
     // Add each PR as a badge
     prs.forEach(pr => {
       const badge = document.createElement('a')
@@ -547,8 +563,8 @@ class SalesforceGitHubLinker {
       badge.title = `${pr.title} (${pr.repository})`
       badge.textContent = `#${pr.number}`
 
-      // Use CSS classes for state and cache status
-      badge.className = `pr-badge ${pr.state === 'open' ? 'open' : 'closed'}${fromCache ? ' cached' : ''}`
+      // Use CSS classes for state
+      badge.className = `pr-badge ${pr.state === 'open' ? 'open' : 'closed'}`
 
       prContainer.appendChild(badge)
     })
@@ -596,13 +612,6 @@ class SalesforceGitHubLinker {
         background-color: #5a32a3;
       }
 
-      .pr-badge.cached {
-        opacity: 0.6;
-      }
-
-      .github-pr-links.cached .pr-badge {
-        opacity: 0.6;
-      }
     `
     document.head.appendChild(style)
   }
