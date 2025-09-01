@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      width: 300px;
+      padding: 20px;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    
+    .header {
+      margin-bottom: 20px;
+    }
+    
+    .header h3 {
+      margin: 0;
+      color: #333;
+    }
+    
+    .form-group {
+      margin-bottom: 15px;
+    }
+    
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: 500;
+      color: #555;
+    }
+    
+    input[type="password"] {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    
+    button {
+      background-color: #0366d6;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    
+    button:hover {
+      background-color: #0256cc;
+    }
+    
+    .status {
+      margin-top: 10px;
+      padding: 8px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    
+    .status.success {
+      background-color: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    
+    .status.error {
+      background-color: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+    
+    .help-text {
+      font-size: 11px;
+      color: #666;
+      margin-top: 5px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h3>GitHub Token Setup</h3>
+  </div>
+  
+  <div class="form-group">
+    <label for="token">GitHub Personal Access Token:</label>
+    <input type="password" id="token" placeholder="ghp_xxxxxxxxxxxx">
+    <div class="help-text">
+      Need a token? <a href="https://github.com/settings/personal-access-tokens/new?name=Salesforce+GitHub+Linker&description=Search+PRs+for+Salesforce+tickets&contents=read&pull_requests=read&metadata=read" target="_blank">Create new token</a>
+      <br><strong>Required permissions:</strong>
+      <br>• <code>Contents: read</code> - Read repository content
+      <br>• <code>Pull requests: read</code> - Read pull requests
+      <br>• <code>Metadata: read</code> - Read repository metadata
+      <br><br>Or use <a href="https://github.com/settings/tokens" target="_blank">classic tokens</a> with <code>repo</code> scope
+    </div>
+  </div>
+  
+  <button id="save">Save Token</button>
+  
+  <div id="status" class="status" style="display: none;"></div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>

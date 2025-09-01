@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Salesforce Tickets GitHub PR Linker",
+  "version": "1.0",
+  "description": "Links Salesforce tickets to matching GitHub pull requests",
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://*.lightning.force.com/*",
+    "https://api.github.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://*.lightning.force.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Configure GitHub Token"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}
