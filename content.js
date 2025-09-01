@@ -169,8 +169,7 @@ class SalesforceGitHubLinker {
       console.log('🚫 Ignored columns:', this.ignoredColumns.join(', '))
     }
 
-    // TODO: Remove this - temporarily process only first 10 tickets for debugging
-    const ticketLimit = 10
+    const ticketLimit = 100
     console.log(`🚧 DEBUG: Processing only first ${ticketLimit} tickets for now`)
     this.rateLimitQueue = this.rateLimitQueue.slice(0, ticketLimit)
     console.log(`Queue reduced to ${this.rateLimitQueue.length} tickets:`,
@@ -456,7 +455,7 @@ class SalesforceGitHubLinker {
 
       if (response.success && response.prs) {
         console.log(`🔄 Fresh results for ${ticketNumber}:`, response.prs)
-        
+
         // Update the UI - either replace changed results or refresh existing cached badges
         if (!cachedPrs || this.prResultsChanged(cachedPrs, response.prs)) {
           console.log(`🔄 Updating badges for ${ticketNumber} (data changed)`)
@@ -465,7 +464,7 @@ class SalesforceGitHubLinker {
           console.log(`🔄 Refreshing cached badges for ${ticketNumber} (data unchanged)`)
           this.refreshCachedBadges(card) // Make cached badges look fresh
         }
-        
+
         if (response.prs.length > 0) {
           console.log(`✅ Found ${response.prs.length} PRs for ${ticketNumber}`)
         } else {
@@ -487,11 +486,11 @@ class SalesforceGitHubLinker {
     if (!oldPrs && !newPrs) return false
     if (!oldPrs || !newPrs) return true
     if (oldPrs.length !== newPrs.length) return true
-    
+
     // Simple comparison by PR numbers and states
     const oldSet = new Set(oldPrs.map(pr => `${pr.number}_${pr.state}`))
     const newSet = new Set(newPrs.map(pr => `${pr.number}_${pr.state}`))
-    
+
     return oldSet.size !== newSet.size || ![...oldSet].every(item => newSet.has(item))
   }
 
@@ -508,7 +507,7 @@ class SalesforceGitHubLinker {
     badges.forEach(badge => {
       badge.classList.remove('cached')
     })
-    
+
     console.log(`🔄 Refreshed cached badges to look fresh`)
   }
 
@@ -533,7 +532,7 @@ class SalesforceGitHubLinker {
     const prContainer = document.createElement('p')
     prContainer.className = 'slds-truncate runtime_sales_pipelineboardPipelineViewCardItemStencil github-pr-links'
     prContainer.style.cssText = 'margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px;'
-    
+
     // Add cache indicator if from cache
     if (fromCache) {
       prContainer.setAttribute('data-cached', 'true')
@@ -547,7 +546,7 @@ class SalesforceGitHubLinker {
       badge.target = '_blank'
       badge.title = `${pr.title} (${pr.repository})`
       badge.textContent = `#${pr.number}`
-      
+
       // Use CSS classes for state and cache status
       badge.className = `pr-badge ${pr.state === 'open' ? 'open' : 'closed'}${fromCache ? ' cached' : ''}`
 
@@ -580,27 +579,27 @@ class SalesforceGitHubLinker {
         display: inline-block;
         transition: background-color 0.2s ease, opacity 0.3s ease;
       }
-      
+
       .pr-badge.open {
         background-color: #28a745;
       }
-      
+
       .pr-badge.open:hover {
         background-color: #218838;
       }
-      
+
       .pr-badge.closed {
         background-color: #6f42c1;
       }
-      
+
       .pr-badge.closed:hover {
         background-color: #5a32a3;
       }
-      
+
       .pr-badge.cached {
         opacity: 0.6;
       }
-      
+
       .github-pr-links.cached .pr-badge {
         opacity: 0.6;
       }
