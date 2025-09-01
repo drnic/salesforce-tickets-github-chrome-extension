@@ -3,34 +3,37 @@
 class SalesforceGitHubLinker {
   constructor() {
     this.token = null;
+    this.organization = null;
     this.processedTickets = new Set();
     this.init();
   }
 
   async init() {
-    // Get stored GitHub token
-    const result = await chrome.storage.sync.get(['githubToken']);
+    // Get stored GitHub settings
+    const result = await chrome.storage.sync.get(['githubToken', 'githubOrganization']);
     this.token = result.githubToken;
+    this.organization = result.githubOrganization;
 
-    // Start processing tickets if we have a token
-    if (this.token) {
+    // Start processing tickets if we have both token and organization
+    if (this.token && this.organization) {
       this.startProcessing();
     } else {
-      console.log('No GitHub token found. Please configure in extension popup.');
+      console.log('GitHub token or organization not configured. Please configure in extension popup.');
     }
 
-    // Listen for token updates
+    // Listen for settings updates
     chrome.runtime.onMessage.addListener((message) => {
-      if (message.action === 'tokenUpdated') {
-        this.refreshToken();
+      if (message.action === 'settingsUpdated') {
+        this.refreshSettings();
       }
     });
   }
 
-  async refreshToken() {
-    const result = await chrome.storage.sync.get(['githubToken']);
+  async refreshSettings() {
+    const result = await chrome.storage.sync.get(['githubToken', 'githubOrganization']);
     this.token = result.githubToken;
-    if (this.token) {
+    this.organization = result.githubOrganization;
+    if (this.token && this.organization) {
       this.processedTickets.clear();
       this.startProcessing();
     }
@@ -73,7 +76,7 @@ class SalesforceGitHubLinker {
   }
 
   async processTickets() {
-    if (!this.token) return;
+    if (!this.token || !this.organization) return;
 
     const ticketCards = document.querySelectorAll('.pipelineViewCard');
     
@@ -98,16 +101,27 @@ class SalesforceGitHubLinker {
   async addGitHubLinks(card, ticketNumber) {
     try {
       // Search for PRs using the background script
-      const response = await new Promise((resolve) => {
+      const response = await new Promise((resolve, reject) => {
         chrome.runtime.sendMessage({
           action: 'searchGitHubPRs',
           ticketNumber: ticketNumber,
-          token: this.token
-        }, resolve);
+          token: this.token,
+          organization: this.organization
+        }, (response) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+          } else if (!response) {
+            reject(new Error('No response from background script'));
+          } else {
+            resolve(response);
+          }
+        });
       });
 
-      if (response.success && response.prs.length > 0) {
+      if (response.success && response.prs && response.prs.length > 0) {
         this.insertPRBadges(card, response.prs);
+      } else if (!response.success) {
+        console.error('GitHub API error for', ticketNumber, response.error);
       }
     } catch (error) {
       console.error('Error fetching GitHub PRs for', ticketNumber, error);
