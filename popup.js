@@ -122,11 +122,9 @@ document.addEventListener('DOMContentLoaded', function() {
       return `✓ Found ${data.total_count} PRs in org`;
     });
     
-    // Test 4: Test specific ticket search
-    await runTest('test-permissions', 'Testing ticket-style search', async () => {
-      const testTicket = 'TEST-123';
-      const query = `[${testTicket}] in:title type:pr org:${organization}`;
-      const response = await fetch(`https://api.github.com/search/issues?q=${encodeURIComponent(query)}&per_page=1`, {
+    // Test 4: Test actual repository search access with exact same query format
+    await runTest('test-permissions', 'Testing repository search access', async () => {
+      const response = await fetch(`https://api.github.com/search/issues?per_page=1&q=org:${organization}+is:pull-request`, {
         headers: {
           'Authorization': `token ${token}`,
           'Accept': 'application/vnd.github.v3+json'
@@ -135,11 +133,17 @@ document.addEventListener('DOMContentLoaded', function() {
       
       if (!response.ok) {
         const errorText = await response.text();
+        if (response.status === 403) {
+          throw new Error(`Access denied to ${organization} repositories. Token needs organization approval or proper Resource owner setup.`);
+        }
         throw new Error(`Status ${response.status}: ${errorText}`);
       }
       
       const data = await response.json();
-      return `✓ Search permissions OK`;
+      if (data.total_count === 0) {
+        throw new Error(`No PRs found in ${organization}. Token may not have access to organization repositories.`);
+      }
+      return `✓ Found ${data.total_count} PRs - repository access confirmed`;
     });
     
     // If all tests passed, save settings

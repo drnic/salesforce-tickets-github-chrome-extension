@@ -15,7 +15,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 async function searchGitHubPRs(ticketNumber, token, organization) {
-  const query = `[${ticketNumber}] in:title type:pr org:${organization}`;
+  // Simplified search - just ticket number without brackets
+  const query = `${ticketNumber} in:title is:pull-request org:${organization}`;
   
   console.log('=== Background Script Debug ===');
   console.log('Ticket number:', ticketNumber);
@@ -32,7 +33,10 @@ async function searchGitHubPRs(ticketNumber, token, organization) {
   }
   
   try {
-    const response = await fetch(`https://api.github.com/search/issues?q=${encodeURIComponent(query)}`, {
+    const fullUrl = `https://api.github.com/search/issues?q=${encodeURIComponent(query)}`;
+    console.log('Full API URL:', fullUrl);
+    
+    const response = await fetch(fullUrl, {
       headers: {
         'Authorization': `token ${token}`,
         'Accept': 'application/vnd.github.v3+json'
@@ -74,21 +78,42 @@ async function searchGitHubPRs(ticketNumber, token, organization) {
 
     const data = await response.json();
     
+    console.log('=== GitHub API Response ===');
+    console.log('Total count:', data.total_count);
+    console.log('Items found:', data.items.length);
+    
+    data.items.forEach((item, index) => {
+      console.log(`Item ${index + 1}:`, {
+        title: item.title,
+        number: item.number,
+        repository: item.repository_url.split('/').slice(-2).join('/'),
+        url: item.html_url
+      });
+    });
+    
     // Filter results to only include repositories from the specified organization
     const filteredItems = data.items.filter(pr => {
       const repoPath = pr.repository_url.split('/').slice(-2);
       const repoOrg = repoPath[0];
-      return repoOrg.toLowerCase() === organization.toLowerCase();
+      const matches = repoOrg.toLowerCase() === organization.toLowerCase();
+      console.log(`Repository ${pr.repository_url} - Org: ${repoOrg} - Matches ${organization}: ${matches}`);
+      return matches;
     });
     
+    console.log('=== After Organization Filtering ===');
+    console.log('Filtered items count:', filteredItems.length);
+    
     // Transform the results to include the info we need
-    return filteredItems.map(pr => ({
+    const result = filteredItems.map(pr => ({
       number: pr.number,
       title: pr.title,
       url: pr.html_url,
       repository: pr.repository_url.split('/').slice(-2).join('/'),
       state: pr.state
     }));
+    
+    console.log('Final result:', result);
+    return result;
   } catch (error) {
     console.error('Error searching GitHub PRs:', error);
     throw error;

@@ -119,6 +119,12 @@ class SalesforceGitHubLinker {
       console.log(`📋 ${columnName}: ${tickets.join(', ')}`);
     });
     
+    // TODO: Remove this - temporarily process only first 3 tickets for debugging
+    console.log(`🚧 DEBUG: Processing only first 3 tickets for now`);
+    this.rateLimitQueue = this.rateLimitQueue.slice(0, 3);
+    console.log(`Queue reduced to ${this.rateLimitQueue.length} tickets:`, 
+      this.rateLimitQueue.map(item => item.ticketNumber));
+    
     // Start processing the queue if not already running
     if (!this.isProcessingQueue) {
       this.processQueue();
@@ -215,6 +221,12 @@ class SalesforceGitHubLinker {
       console.log('Token (first 10 chars):', this.token ? this.token.substring(0, 10) + '...' : 'MISSING');
       console.log('Organization:', this.organization);
       
+      // Show what query will be sent
+      const expectedQuery = `${ticketNumber} in:title is:pull-request org:${this.organization}`;
+      const expectedUrl = `https://api.github.com/search/issues?q=${encodeURIComponent(expectedQuery)}`;
+      console.log('Expected query:', expectedQuery);
+      console.log('Expected URL:', expectedUrl);
+      
       // Search for PRs using the background script
       const response = await new Promise((resolve, reject) => {
         chrome.runtime.sendMessage({
@@ -234,7 +246,10 @@ class SalesforceGitHubLinker {
       });
 
       if (response.success && response.prs && response.prs.length > 0) {
+        console.log(`✅ Found ${response.prs.length} PRs for ${ticketNumber}:`, response.prs);
         this.insertPRBadges(card, response.prs);
+      } else if (response.success && (!response.prs || response.prs.length === 0)) {
+        console.log(`❌ No PRs found for ${ticketNumber}`);
       } else if (!response.success) {
         console.error('GitHub API error for', ticketNumber, response.error);
       }
