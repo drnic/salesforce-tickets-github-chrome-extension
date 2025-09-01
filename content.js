@@ -4,17 +4,27 @@ class SalesforceGitHubLinker {
   constructor() {
     this.token = null
     this.organization = null
+    this.ignoredColumns = ['Parked', 'Done']
     this.processedTickets = new Set()
+    this.skippedTickets = new Set()
     this.rateLimitQueue = []
     this.isProcessingQueue = false
+    this.domainKey = this.getDomainKey()
     this.init()
   }
 
   async init() {
     // Get stored GitHub settings
-    const result = await chrome.storage.sync.get(['githubToken', 'githubOrganization'])
+    const result = await chrome.storage.sync.get(['githubToken', 'githubOrganization', 'ignoredColumns'])
     this.token = result.githubToken
     this.organization = result.githubOrganization
+    this.ignoredColumns = this.parseIgnoredColumns(result.ignoredColumns || 'Parked, Done')
+
+    // Load stored skipped tickets for this domain
+    await this.loadSkippedTickets()
+
+    // Clean up old domain data periodically (once per session)
+    await this.cleanupOldDomains()
 
     // Start processing tickets if we have both token and organization
     if (this.token && this.organization) {
@@ -32,11 +42,15 @@ class SalesforceGitHubLinker {
   }
 
   async refreshSettings() {
-    const result = await chrome.storage.sync.get(['githubToken', 'githubOrganization'])
+    const result = await chrome.storage.sync.get(['githubToken', 'githubOrganization', 'ignoredColumns'])
     this.token = result.githubToken
     this.organization = result.githubOrganization
+    this.ignoredColumns = this.parseIgnoredColumns(result.ignoredColumns || 'Parked, Done')
     if (this.token && this.organization) {
       this.processedTickets.clear()
+      // Clear skipped tickets when settings change - columns might have changed
+      this.skippedTickets.clear()
+      await this.clearStoredSkippedTickets()
       this.startProcessing()
     }
   }
@@ -96,12 +110,30 @@ class SalesforceGitHubLinker {
 
     // Group tickets by column for cleaner logging
     const ticketsByColumn = new Map()
+    const newlySkippedTickets = []
+    let hasNewSkips = false
+
     for (const card of sortedCards) {
       const ticketNumber = this.extractTicketNumber(card)
       if (ticketNumber && !this.processedTickets.has(ticketNumber)) {
         const column = card.closest('.pipelineColumn')
         const header = column?.querySelector('.pipelineHeader')
         const columnName = header ? header.textContent.trim() : 'Unknown Column'
+
+        // Check if already known to be skipped
+        if (this.skippedTickets.has(ticketNumber)) {
+          this.processedTickets.add(ticketNumber)
+          continue
+        }
+
+        // Check if ticket is in ignored column
+        if (this.isTicketInIgnoredColumn(card)) {
+          newlySkippedTickets.push(`${ticketNumber} (${columnName})`)
+          this.skippedTickets.add(ticketNumber)
+          this.processedTickets.add(ticketNumber)
+          hasNewSkips = true
+          continue
+        }
 
         if (!ticketsByColumn.has(columnName)) {
           ticketsByColumn.set(columnName, [])
@@ -113,15 +145,31 @@ class SalesforceGitHubLinker {
       }
     }
 
+    // Save skipped tickets if we found new ones
+    if (hasNewSkips) {
+      await this.saveSkippedTickets()
+    }
+
     // Show tickets by column in processing order
     console.log('=== Tickets by Column (in processing order) ===')
     ticketsByColumn.forEach((tickets, columnName) => {
       console.log(`📋 ${columnName}: ${tickets.join(', ')}`)
     })
 
+    if (newlySkippedTickets.length > 0) {
+      console.log('🚫 Newly skipped tickets in ignored columns:', newlySkippedTickets.join(', '))
+    }
+
+    const totalSkipped = this.skippedTickets.size
+    if (totalSkipped > 0) {
+      console.log(`🚫 Total skipped tickets for ${this.domainKey}: ${totalSkipped}`)
+      console.log('🚫 Ignored columns:', this.ignoredColumns.join(', '))
+    }
+
     // TODO: Remove this - temporarily process only first 10 tickets for debugging
-    console.log(`🚧 DEBUG: Processing only first 10 tickets for now`)
-    this.rateLimitQueue = this.rateLimitQueue.slice(0, 3)
+    const ticketLimit = 10
+    console.log(`🚧 DEBUG: Processing only first ${ticketLimit} tickets for now`)
+    this.rateLimitQueue = this.rateLimitQueue.slice(0, ticketLimit)
     console.log(`Queue reduced to ${this.rateLimitQueue.length} tickets:`,
       this.rateLimitQueue.map(item => item.ticketNumber))
 
@@ -198,9 +246,6 @@ class SalesforceGitHubLinker {
       const orderA = columnOrder.get(columnA) ?? 999
       const orderB = columnOrder.get(columnB) ?? 999
 
-      console.log(`Card ${this.extractTicketNumber(a)}: column order ${orderA}`)
-      console.log(`Card ${this.extractTicketNumber(b)}: column order ${orderB}`)
-
       return orderA - orderB // Lower order = higher priority (rightmost first)
     })
   }
@@ -212,6 +257,94 @@ class SalesforceGitHubLinker {
       return ticketSpan.title
     }
     return null
+  }
+
+  parseIgnoredColumns(ignoredColumnsString) {
+    if (!ignoredColumnsString || typeof ignoredColumnsString !== 'string') {
+      return ['Parked', 'Done'] // Default fallback
+    }
+    return ignoredColumnsString.split(',').map(column => column.trim()).filter(column => column.length > 0)
+  }
+
+  getDomainKey() {
+    return window.location.hostname
+  }
+
+  async loadSkippedTickets() {
+    const storageKey = `skippedTickets_${this.domainKey}`
+    const result = await chrome.storage.local.get([storageKey])
+    const stored = result[storageKey] || []
+    this.skippedTickets = new Set(stored)
+    console.log(`Loaded ${stored.length} skipped tickets for domain ${this.domainKey}`)
+  }
+
+  async saveSkippedTickets() {
+    const storageKey = `skippedTickets_${this.domainKey}`
+    const ticketsArray = Array.from(this.skippedTickets)
+    await chrome.storage.local.set({ [storageKey]: ticketsArray })
+  }
+
+  async clearStoredSkippedTickets() {
+    const storageKey = `skippedTickets_${this.domainKey}`
+    await chrome.storage.local.remove([storageKey])
+  }
+
+  async cleanupOldDomains() {
+    try {
+      // Only run cleanup once per day per domain
+      const lastCleanupKey = `lastCleanup_${this.domainKey}`
+      const result = await chrome.storage.local.get([lastCleanupKey])
+      const lastCleanup = result[lastCleanupKey] || 0
+      const now = Date.now()
+      const oneDayMs = 24 * 60 * 60 * 1000
+
+      if (now - lastCleanup < oneDayMs) {
+        return // Skip cleanup if done recently
+      }
+
+      // Get all storage keys
+      const allData = await chrome.storage.local.get(null)
+      const skippedTicketKeys = Object.keys(allData).filter(key => key.startsWith('skippedTickets_'))
+
+      // Remove data older than 30 days for domains other than current
+      const thirtyDaysMs = 30 * oneDayMs
+      const keysToRemove = []
+
+      for (const key of skippedTicketKeys) {
+        const domain = key.replace('skippedTickets_', '')
+        if (domain !== this.domainKey) {
+          // Check if we have timestamp data for this domain
+          const domainLastUsed = allData[`lastUsed_${domain}`] || 0
+          if (now - domainLastUsed > thirtyDaysMs) {
+            keysToRemove.push(key)
+            keysToRemove.push(`lastUsed_${domain}`)
+          }
+        }
+      }
+
+      if (keysToRemove.length > 0) {
+        await chrome.storage.local.remove(keysToRemove)
+        console.log(`Cleaned up ${keysToRemove.length} old storage keys`)
+      }
+
+      // Update last cleanup time and last used time for current domain
+      await chrome.storage.local.set({
+        [lastCleanupKey]: now,
+        [`lastUsed_${this.domainKey}`]: now
+      })
+
+    } catch (error) {
+      console.error('Error during cleanup:', error)
+    }
+  }
+
+  isTicketInIgnoredColumn(card) {
+    const column = card.closest('.pipelineColumn')
+    const header = column?.querySelector('.pipelineHeader')
+    const columnName = header ? header.textContent.trim() : ''
+    return this.ignoredColumns.some(ignoredColumn =>
+      columnName.toLowerCase().includes(ignoredColumn.toLowerCase())
+    )
   }
 
   async addGitHubLinks(card, ticketNumber) {

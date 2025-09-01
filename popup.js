@@ -1,16 +1,22 @@
 document.addEventListener('DOMContentLoaded', function() {
   const organizationInput = document.getElementById('organization');
   const tokenInput = document.getElementById('token');
+  const ignoredColumnsInput = document.getElementById('ignoredColumns');
   const saveButton = document.getElementById('save');
   const statusDiv = document.getElementById('status');
 
   // Load existing settings
-  chrome.storage.sync.get(['githubToken', 'githubOrganization'], function(result) {
+  chrome.storage.sync.get(['githubToken', 'githubOrganization', 'ignoredColumns'], function(result) {
     if (result.githubToken) {
       tokenInput.value = result.githubToken;
     }
     if (result.githubOrganization) {
       organizationInput.value = result.githubOrganization;
+    }
+    if (result.ignoredColumns) {
+      ignoredColumnsInput.value = result.ignoredColumns;
+    } else {
+      ignoredColumnsInput.value = 'Parked, Done';
     }
   });
 
@@ -18,6 +24,7 @@ document.addEventListener('DOMContentLoaded', function() {
   saveButton.addEventListener('click', function() {
     const organization = organizationInput.value.trim();
     const token = tokenInput.value.trim();
+    const ignoredColumns = ignoredColumnsInput.value.trim();
     
     if (!organization) {
       showStatus('Please enter a GitHub organization name', 'error');
@@ -150,7 +157,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if (allTestsPassed) {
       chrome.storage.sync.set({ 
         githubToken: token,
-        githubOrganization: organization
+        githubOrganization: organization,
+        ignoredColumns: ignoredColumns
       }, function() {
         showStatus('All tests passed! Settings saved successfully.', 'success');
         
