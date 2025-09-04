@@ -317,7 +317,7 @@ class SalesforceGitHubLinker {
     const cardsWithCacheStatus = await Promise.all(cards.map(async (card) => {
       const ticketNumber = this.extractTicketNumber(card)
       let needsFreshData = true // Default to needing fresh data
-      
+
       if (ticketNumber) {
         try {
           const cachedResponse = await new Promise((resolve, reject) => {
@@ -334,7 +334,7 @@ class SalesforceGitHubLinker {
               }
             })
           })
-          
+
           // Only consider it as NOT needing fresh data if it has cached data with PRs > 0
           if (cachedResponse.success && cachedResponse.cachedData && cachedResponse.cachedData.prs && cachedResponse.cachedData.prs.length > 0) {
             needsFreshData = false
@@ -367,7 +367,7 @@ class SalesforceGitHubLinker {
       // First priority: fresh data needs (tickets needing fresh data first)
       if (a.needsFreshData && !b.needsFreshData) return -1
       if (!a.needsFreshData && b.needsFreshData) return 1
-      
+
       // Within same cache status, sort by column position (rightmost first)
       const columnA = a.card.closest('.pipelineColumn')
       const columnB = b.card.closest('.pipelineColumn')
@@ -653,14 +653,16 @@ class SalesforceGitHubLinker {
       badge.title = `${pr.title} (${pr.repository})`
       badge.textContent = `#${pr.number}`
 
-      // Use CSS classes for state - prioritize draft over open/closed
-      let stateClass;
+      // Use CSS classes for state - prioritize draft over open/merged/closed
+      let stateClass
       if (pr.draft) {
-        stateClass = 'draft';
+        stateClass = 'draft'
       } else if (pr.state === 'open') {
-        stateClass = 'open';
+        stateClass = 'open'
+      } else if (pr.merged) {
+        stateClass = 'merged'
       } else {
-        stateClass = 'closed';
+        stateClass = 'closed'
       }
       badge.className = `pr-badge ${stateClass}`
 
@@ -702,12 +704,20 @@ class SalesforceGitHubLinker {
         background-color: #218838;
       }
 
-      .pr-badge.closed {
+      .pr-badge.merged {
         background-color: #6f42c1;
       }
 
-      .pr-badge.closed:hover {
+      .pr-badge.merged:hover {
         background-color: #5a32a3;
+      }
+
+      .pr-badge.closed {
+        background-color: #ef2d33ff;
+      }
+
+      .pr-badge.closed:hover {
+        background-color: #dd182cff;
       }
 
       .pr-badge.draft {

@@ -159,14 +159,41 @@ async function searchGitHubPRs(ticketNumber, token, organization, domain, skipCa
     console.log('=== After Organization Filtering ===');
     console.log('Filtered items count:', filteredItems.length);
     
-    // Transform the results to include the info we need
-    const result = filteredItems.map(pr => ({
-      number: pr.number,
-      title: pr.title,
-      url: pr.html_url,
-      repository: pr.repository_url.split('/').slice(-2).join('/'),
-      state: pr.state,
-      draft: pr.draft
+    // Transform the results and check merged status for closed PRs
+    const result = await Promise.all(filteredItems.map(async pr => {
+      const basicPR = {
+        number: pr.number,
+        title: pr.title,
+        url: pr.html_url,
+        repository: pr.repository_url.split('/').slice(-2).join('/'),
+        state: pr.state,
+        draft: pr.draft,
+        merged: false
+      };
+      
+      // For closed PRs, check if they are actually merged
+      if (pr.state === 'closed' && !pr.draft) {
+        try {
+          const repoPath = pr.repository_url.split('/').slice(-2).join('/');
+          const prDetailUrl = `https://api.github.com/repos/${repoPath}/pulls/${pr.number}`;
+          
+          const prResponse = await fetch(prDetailUrl, {
+            headers: {
+              'Authorization': `token ${token}`,
+              'Accept': 'application/vnd.github.v3+json'
+            }
+          });
+          
+          if (prResponse.ok) {
+            const prDetail = await prResponse.json();
+            basicPR.merged = prDetail.merged === true;
+          }
+        } catch (error) {
+          console.warn(`Could not fetch details for PR #${pr.number}:`, error.message);
+        }
+      }
+      
+      return basicPR;
     }));
     
     console.log('Final result:', result);
