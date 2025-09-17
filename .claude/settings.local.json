@@ -2,9 +2,14 @@
   "permissions": {
     "allow": [
       "WebFetch(domain:github.com)",
-      "Bash(magick:*)"
+      "Bash(magick:*)",
+      "Bash(mkdir:*)"
     ],
     "deny": [],
     "ask": []
-  }
+  },
+  "enabledMcpjsonServers": [
+    "playwright"
+  ],
+  "enableAllProjectMcpServers": true
 }

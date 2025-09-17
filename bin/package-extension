@@ -1,0 +1,28 @@
+#!/bin/bash
+
+# Package Chrome extension for Chrome Web Store submission
+# Creates a clean ZIP file excluding development files
+
+set -e
+
+VERSION=$(grep '"version"' manifest.json | sed 's/.*"version": "\(.*\)".*/\1/')
+PACKAGE_NAME="salesforce-github-extension-v${VERSION}.zip"
+
+echo "📦 Packaging extension v${VERSION}..."
+
+# Clean previous package
+rm -f "${PACKAGE_NAME}"
+
+# Create ZIP excluding development files
+zip -r "${PACKAGE_NAME}" \
+  manifest.json \
+  *.js \
+  *.html \
+  icons/ \
+  -x "*.git*" "node_modules/*" "bin/*" "*.md" "*.zip"
+
+echo "✅ Package created: ${PACKAGE_NAME}"
+echo "📁 Size: $(ls -lh "${PACKAGE_NAME}" | awk '{print $5}')"
+echo ""
+echo "Ready for Chrome Web Store upload at:"
+echo "https://chrome.google.com/webstore/devconsole"
